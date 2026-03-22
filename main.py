@@ -124,64 +124,79 @@ print(f"False Positives (False Alarms): {FP}")
 print(f"False Negatives (Missed Failures): {FN}")
 
 # =====================================================================
-# MODEL 2: L2-REGULARIZED LOGISTIC REGRESSION FROM SCRATCH
+# MODEL 2: L2-REGULARIZED LOGISTIC REGRESSION WITH CLASS WEIGHTS
 # =====================================================================
-print("\n--- Training Logistic Regression (L2 Regularized) ---")
+print("\n--- Training Weighted Logistic Regression (L2 Regularized) ---")
 
-class LogisticRegressionL2:
-    def __init__(self, learning_rate=0.1, epochs=2000, lambda_param=1.0):
+class WeightedLogisticRegressionL2:
+    def __init__(self, learning_rate=0.1, epochs=2000, lambda_param=1.0, class_weight=None):
         self.lr = learning_rate
         self.epochs = epochs
-        self.lambda_param = lambda_param # L2 (Ridge) Regularization parametresi
+        self.lambda_param = lambda_param
+        self.class_weight = class_weight # Örn: {0: 1, 1: 20}
         self.weights = None
         self.bias = None
 
     def _sigmoid(self, z):
-        # np.exp'in çok büyük/küçük sayılarda patlamasını (overflow) önlemek için z'yi sınırlandırıyoruz
+        # np.exp'in patlamasını önlemek için z'yi sınırlandırıyoruz
         z = np.clip(z, -250, 250)
         return 1 / (1 + np.exp(-z))
 
     def fit(self, X, y):
         n_samples, n_features = X.shape
-        # Ağırlıkları ve bias'ı sıfırlarla başlat (Zero Initialization)
         self.weights = np.zeros(n_features)
         self.bias = 0
+        
+        # Sınıf ağırlıklarını (Class Weights) her bir örneğe (sample) atama
+        if self.class_weight is not None:
+            # y dizisindeki her bir etiket için karşılık gelen ceza ağırlığını bul ve diziye çevir
+            sample_weights = np.array([self.class_weight[class_label] for class_label in y])
+        else:
+            sample_weights = np.ones(n_samples)
 
-        # Gradient Descent Döngüsü (İteratif Öğrenme)
+        # Gradient Descent Döngüsü
         for _ in range(self.epochs):
-            # İleri Besleme (Forward Pass)
             linear_model = np.dot(X, self.weights) + self.bias
             y_predicted = self._sigmoid(linear_model)
 
-            # Türevleri (Gradients) Hesapla
-            # L2 penalty = (lambda / n_samples) * weights. (Bias parametresi penalize edilmez)
-            dw = (1 / n_samples) * np.dot(X.T, (y_predicted - y)) + (self.lambda_param / n_samples) * self.weights
-            db = (1 / n_samples) * np.sum(y_predicted - y)
+            # Temel Hata (Error)
+            error = y_predicted - y
+            
+            # MATEMATİKSEL DOKUNUŞ: Hatayı örnek ağırlıklarıyla (sample_weights) çarpıyoruz
+            weighted_error = error * sample_weights
 
-            # Ağırlıkları Güncelle (Update Weights)
+            # Türevleri (Gradients) Ağırlıklı Hataya Göre Hesapla
+            dw = (1 / n_samples) * np.dot(X.T, weighted_error) + (self.lambda_param / n_samples) * self.weights
+            db = (1 / n_samples) * np.sum(weighted_error)
+
+            # Ağırlıkları Güncelle
             self.weights -= self.lr * dw
             self.bias -= self.lr * db
 
     def predict(self, X):
         linear_model = np.dot(X, self.weights) + self.bias
         y_predicted = self._sigmoid(linear_model)
-        # Olasılık %50'den büyükse 1 (Arızalı), küçükse 0 (Sağlam) sınıfına ata
-        y_predicted_cls = [1 if i > 0.5 else 0 for i in y_predicted]
-        return np.array(y_predicted_cls)
+        return np.array([1 if i > 0.5 else 0 for i in y_predicted])
 
-# Modeli Eğit (Train)
-log_reg = LogisticRegressionL2(learning_rate=0.1, epochs=2000, lambda_param=1.0)
-log_reg.fit(X_train_scaled, y_train)
+# Arıza sınıfına (1) 20 kat, Sağlam sınıfa (0) 1 kat ceza ağırlığı veriyoruz
+weights_dict = {0: 1.0, 1: 20.0}
 
-# Test seti üzerinde tahmin yap (Predict)
-log_preds = log_reg.predict(X_test_scaled)
+log_reg_weighted = WeightedLogisticRegressionL2(
+    learning_rate=0.1, 
+    epochs=2000, 
+    lambda_param=1.0, 
+    class_weight=weights_dict
+)
+log_reg_weighted.fit(X_train_scaled, y_train)
+
+log_preds_weighted = log_reg_weighted.predict(X_test_scaled)
 
 # Performansı Değerlendir
-acc_lr, TP_lr, TN_lr, FP_lr, FN_lr = evaluate_performance(y_test, log_preds)
+acc_lr_w, TP_lr_w, TN_lr_w, FP_lr_w, FN_lr_w = evaluate_performance(y_test, log_preds_weighted)
 
-print(f"Logistic Regression Accuracy: {acc_lr * 100:.2f}%")
+print(f"Weighted Logistic Regression Accuracy: {acc_lr_w * 100:.2f}%")
 print("\n--- Confusion Matrix ---")
-print(f"True Positives (Correctly Predicted Failures): {TP_lr}")
-print(f"True Negatives (Correctly Predicted Normals): {TN_lr}")
-print(f"False Positives (False Alarms): {FP_lr}")
-print(f"False Negatives (Missed Failures): {FN_lr}")
+print(f"True Positives (Correctly Predicted Failures): {TP_lr_w}")
+print(f"True Negatives (Correctly Predicted Normals): {TN_lr_w}")
+print(f"False Positives (False Alarms): {FP_lr_w}")
+print(f"False Negatives (Missed Failures): {FN_lr_w}")
